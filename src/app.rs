@@ -1,4 +1,4 @@
-use egui::Frame;
+use egui::{Frame, Grid};
 
 use crate::widgets::polygon::Polygon;
 
@@ -10,7 +10,10 @@ pub struct RupertApp {
     label: String,
 
     #[serde(skip)]
-    polygon: Polygon,
+    outer_polygon: Polygon,
+
+    #[serde(skip)]
+    inner_polygon: Polygon,
 }
 
 impl Default for RupertApp {
@@ -18,7 +21,8 @@ impl Default for RupertApp {
         Self {
             // Example stuff:
             label: "Hello World!".to_owned(),
-            polygon: Polygon::default(),
+            outer_polygon: Polygon::default(),
+            inner_polygon: Polygon::default(),
         }
     }
 }
@@ -73,13 +77,31 @@ impl eframe::App for RupertApp {
             // The central panel the region left after adding TopPanel's and SidePanel's
             ui.heading("Rupert");
 
-            self.polygon.ui_control(ui);
+            self.outer_polygon.ui_control(ui);
 
-            Frame::canvas(ui.style()).show(ui, |ui| {
-                self.polygon.ui_content(ui);
+            ui.separator();
+
+            Grid::new("polygon_holder").show(ui, |ui| {
+                ui.label("Polygon A (outer)");
+                ui.label("Polygon B (inner)");
+                ui.end_row();
+
+                Frame::canvas(ui.style()).show(ui, |ui| {
+                    self.outer_polygon.ui_content(ui);
+                });
+                Frame::canvas(ui.style()).show(ui, |ui| {
+                    self.inner_polygon.ui_content(ui);
+                });
+                ui.end_row();
+
+                ui.vertical(|ui| {
+                    self.outer_polygon.ui_readout(ui);
+                });
+                ui.vertical(|ui| {
+                    self.inner_polygon.ui_readout(ui);
+                });
+                ui.end_row();
             });
-
-            self.polygon.ui_readout(ui);
 
             ui.separator();
 
