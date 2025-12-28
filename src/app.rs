@@ -1,3 +1,7 @@
+use egui::Frame;
+
+use crate::widgets::polygon::Polygon;
+
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
@@ -5,8 +9,8 @@ pub struct RupertApp {
     // Example stuff:
     label: String,
 
-    #[serde(skip)] // This how you opt-out of serialization of a field
-    value: f32,
+    #[serde(skip)]
+    polygon: Polygon,
 }
 
 impl Default for RupertApp {
@@ -14,7 +18,7 @@ impl Default for RupertApp {
         Self {
             // Example stuff:
             label: "Hello World!".to_owned(),
-            value: 2.7,
+            polygon: Polygon::default(),
         }
     }
 }
@@ -69,15 +73,13 @@ impl eframe::App for RupertApp {
             // The central panel the region left after adding TopPanel's and SidePanel's
             ui.heading("Rupert");
 
-            ui.horizontal(|ui| {
-                ui.label("Write something: ");
-                ui.text_edit_singleline(&mut self.label);
+            self.polygon.ui_control(ui);
+
+            Frame::canvas(ui.style()).show(ui, |ui| {
+                self.polygon.ui_content(ui);
             });
 
-            ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
-            if ui.button("Increment").clicked() {
-                self.value += 1.0;
-            }
+            self.polygon.ui_readout(ui);
 
             ui.separator();
 
