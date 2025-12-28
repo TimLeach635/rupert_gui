@@ -29,7 +29,7 @@ impl Default for Polygon {
 }
 
 impl Polygon {
-    pub fn vertices(&self) -> impl IntoIterator {
+    pub fn vertices(&self) -> Vec<Pos2> {
         self.vertices.clone()
     }
 

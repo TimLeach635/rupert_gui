@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 
-use egui::{Color32, Frame, Grid};
+use egui::{Color32, Frame, Grid, Vec2};
 use egui_plot::{Legend, Line, Plot, PlotPoints};
 
 use crate::widgets::polygon::Polygon;
@@ -110,28 +110,77 @@ impl eframe::App for RupertApp {
 
             // TODO: Split this out into its own widget
             {
+                // Values we need
+                let mut centroid = Vec2::ZERO;
+                let vertices = self.inner_polygon.vertices();
+                for vertex in &vertices {
+                    centroid += vertex.to_vec2();
+                }
+                centroid /= vertices.len() as f32;
+                let vertices: Vec<Vec2> = vertices.iter().map(|v| v.to_vec2() - centroid).collect();
+
                 // Generate x and y values
-                let num_points: usize = 100;
+                let num_points: usize = 400;
                 let xs: Vec<f64> = (0..num_points)
                     .map(|i| (i as f64) * 2.0 * PI / (num_points as f64))
                     .collect();
-                let ys: Vec<f64> = xs.iter().map(|&x| x.cos()).collect();
-                let cos_line = Line::new(
-                    "cos(x)",
+                let yss: Vec<Vec<f64>> = vertices
+                    .iter()
+                    .map(|v| {
+                        xs.iter()
+                            .map(|&x| (v.x as f64) * x.cos() + (v.y as f64) * x.sin())
+                            .collect()
+                    })
+                    .collect();
+                let mut max_ys: Vec<f64> = Vec::new();
+                for idx in 0..xs.len() {
+                    let mut max = f64::NEG_INFINITY;
+                    for ys in &yss {
+                        if ys[idx] > max {
+                            max = ys[idx];
+                        }
+                    }
+                    max_ys.push(max);
+                }
+                let lines: Vec<Line<'_>> = yss
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, ys)| {
+                        Line::new(
+                            format!("j = {}", idx + 1),
+                            xs.iter()
+                                .zip(ys.iter())
+                                .map(|(&x, &y)| [x, y])
+                                .collect::<PlotPoints<'_>>(),
+                        )
+                        .color(
+                            ui.style().visuals.weak_text_color.unwrap_or(
+                                ui.style()
+                                    .visuals
+                                    .text_color()
+                                    .gamma_multiply(ui.style().visuals.weak_text_alpha),
+                            ),
+                        )
+                    })
+                    .collect();
+                let max_line = Line::new(
+                    "Maximum",
                     xs.iter()
-                        .zip(ys.iter())
+                        .zip(max_ys.iter())
                         .map(|(&x, &y)| [x, y])
                         .collect::<PlotPoints<'_>>(),
                 )
                 .color(Color32::from_rgb(200, 100, 100));
 
                 Plot::new("cosine_plot_test")
-                    .data_aspect(1.0)
                     .width(600.0)
                     .height(300.0)
                     .legend(Legend::default())
                     .show(ui, |plot_ui| {
-                        plot_ui.line(cos_line);
+                        for line in lines {
+                            plot_ui.line(line);
+                        }
+                        plot_ui.line(max_line);
                     });
             }
 
