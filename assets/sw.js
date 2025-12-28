@@ -1,9 +1,9 @@
-var cacheName = 'egui-template-pwa';
+var cacheName = 'rupert-gui-pwa';
 var filesToCache = [
   './',
   './index.html',
-  './eframe_template.js',
-  './eframe_template_bg.wasm',
+  './rupert_gui.js',
+  './rupert_gui_bg.wasm',
 ];
 
 /* Start the service worker and cache all of the app's content */
