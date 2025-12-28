@@ -1,4 +1,7 @@
-use egui::{Frame, Grid};
+use std::f64::consts::PI;
+
+use egui::{Color32, Frame, Grid};
+use egui_plot::{Legend, Line, Plot, PlotPoints};
 
 use crate::widgets::polygon::Polygon;
 
@@ -102,6 +105,35 @@ impl eframe::App for RupertApp {
                 });
                 ui.end_row();
             });
+
+            ui.separator();
+
+            // TODO: Split this out into its own widget
+            {
+                // Generate x and y values
+                let num_points: usize = 100;
+                let xs: Vec<f64> = (0..num_points)
+                    .map(|i| (i as f64) * 2.0 * PI / (num_points as f64))
+                    .collect();
+                let ys: Vec<f64> = xs.iter().map(|&x| x.cos()).collect();
+                let cos_line = Line::new(
+                    "cos(x)",
+                    xs.iter()
+                        .zip(ys.iter())
+                        .map(|(&x, &y)| [x, y])
+                        .collect::<PlotPoints<'_>>(),
+                )
+                .color(Color32::from_rgb(200, 100, 100));
+
+                Plot::new("cosine_plot_test")
+                    .data_aspect(1.0)
+                    .width(600.0)
+                    .height(300.0)
+                    .legend(Legend::default())
+                    .show(ui, |plot_ui| {
+                        plot_ui.line(cos_line);
+                    });
+            }
 
             ui.separator();
 
