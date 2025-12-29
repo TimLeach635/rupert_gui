@@ -2,6 +2,7 @@ use std::f64::consts::PI;
 
 use egui::{Color32, Frame, Grid, Vec2};
 use egui_plot::{Legend, Line, Plot, PlotPoints};
+use itertools::{Itertools, repeat_n};
 
 use crate::widgets::polygon::Polygon;
 
@@ -110,37 +111,112 @@ impl eframe::App for RupertApp {
 
             // TODO: Split this out into its own widget
             {
+                // Calculate ns and cs
+                let outer_vertices = self.outer_polygon.vertices();
+                let mut ns: Vec<Vec2> = Vec::new();
+                let mut cs: Vec<f32> = Vec::new();
+                for to_idx in 0..outer_vertices.len() {
+                    let mut from_idx = outer_vertices.len() - 1;
+                    if to_idx != 0 {
+                        from_idx = to_idx - 1;
+                    }
+
+                    let edge =
+                        outer_vertices[to_idx].to_vec2() - outer_vertices[from_idx].to_vec2();
+                    // Compute the normal by rotating the edge clockwise 90 degrees and normalising
+                    // This works because we have defined the polygon to have its vertices defined
+                    // anti-clockwise
+                    // TODO: Make this method robust by detecting which way round the vertices are
+                    // defined
+                    let n = edge.rot90().normalized();
+                    let c = n.dot(outer_vertices[to_idx].to_vec2());
+
+                    ns.push(n);
+                    cs.push(c);
+                }
+
+                // Find the critical region
+                // TODO: Generalise to N_A > 3
+                let n_1 = ns[0];
+                let n_2 = ns[1];
+                let n_3 = ns[2];
+                let critical_normal: Vec<f32> = vec![
+                    n_2.x * n_3.y - n_3.x * n_2.y,
+                    n_3.x * n_1.y - n_1.x * n_3.y,
+                    n_1.x * n_2.y - n_2.x * n_1.y,
+                ];
+                assert!(critical_normal[0] >= 0.0);
+                assert!(critical_normal[1] >= 0.0);
+                assert!(critical_normal[2] >= 0.0);
+
                 // Values we need
                 let mut centroid = Vec2::ZERO;
-                let vertices = self.inner_polygon.vertices();
-                for vertex in &vertices {
+                let inner_vertices = self.inner_polygon.vertices();
+                for vertex in &inner_vertices {
                     centroid += vertex.to_vec2();
                 }
-                centroid /= vertices.len() as f32;
-                let vertices: Vec<Vec2> = vertices.iter().map(|v| v.to_vec2() - centroid).collect();
+                centroid /= inner_vertices.len() as f32;
+                let bs: Vec<Vec2> = inner_vertices
+                    .iter()
+                    .map(|v| v.to_vec2() - centroid)
+                    .collect();
 
                 // Generate x and y values
                 let num_points: usize = 400;
                 let xs: Vec<f64> = (0..num_points)
                     .map(|i| (i as f64) * 2.0 * PI / (num_points as f64))
                     .collect();
-                let yss: Vec<Vec<f64>> = vertices
-                    .iter()
-                    .map(|v| {
-                        xs.iter()
-                            .map(|&x| (v.x as f64) * x.cos() + (v.y as f64) * x.sin())
-                            .collect()
-                    })
-                    .collect();
-                let mut max_ys: Vec<f64> = Vec::new();
+
+                let mut yss: Vec<Vec<f64>> = Vec::new();
+                // We need to generate a potentially very large number of lines here: there are N_B
+                // to the power of N_A different cosine curves that we need to consider.
+                // We can generate a list of indices for these curves by getting "permutations with
+                // replacement", which according to
+                // https://docs.rs/itertools/latest/itertools/trait.Itertools.html#method.permutations
+                // is done with the following:
+                let index_choices = repeat_n(0..inner_vertices.len(), outer_vertices.len())
+                    .multi_cartesian_product()
+                    .collect_vec();
+                // TODO: Generalise this assertion to (N_B)^(N_A)
+                assert_eq!(index_choices.len(), 27);
+                for index_choice in index_choices {
+                    // Each "index choice" is a vector of length N_A, where each element is an
+                    // index from 0 to (N_B - 1) indicating which choice of "j" (i.e. which inner
+                    // polygon vertex) to use for the corresponding curve.
+                    // We then plug all those choices into the dot product with the critical
+                    // region's normal vector.
+                    // In the triangle case, this is only a single plane with a single normal, so
+                    // there is only one dot product, but the number of planes grows with the
+                    // number of sides of the polygons (roughly with the cube of N_A).
+                    // TODO: Generalise this to N_A > 3
+                    assert_eq!(critical_normal.len(), 3);
+                    assert_eq!(index_choice.len(), 3);
+                    let mut ys: Vec<f64> = Vec::new();
+                    for &x in &xs {
+                        let mut y: f64 = 0.0;
+                        for (i, &j) in index_choice.iter().enumerate() {
+                            let cos_multiplier = ns[i].dot(bs[j]);
+                            let sin_multiplier = ns[i].x * bs[j].y - bs[j].x * ns[i].y;
+                            let curve_value = (cos_multiplier as f64) * x.cos()
+                                + (sin_multiplier as f64) * x.sin();
+                            let c_value = (cs[i] as f64) - curve_value;
+                            let dot_product_term = (critical_normal[i] as f64) * c_value;
+                            y += dot_product_term;
+                        }
+                        ys.push(y);
+                    }
+                    yss.push(ys);
+                }
+
+                let mut min_ys: Vec<f64> = Vec::new();
                 for idx in 0..xs.len() {
-                    let mut max = f64::NEG_INFINITY;
+                    let mut min = f64::INFINITY;
                     for ys in &yss {
-                        if ys[idx] > max {
-                            max = ys[idx];
+                        if ys[idx] < min {
+                            min = ys[idx];
                         }
                     }
-                    max_ys.push(max);
+                    min_ys.push(min);
                 }
                 let lines: Vec<Line<'_>> = yss
                     .iter()
@@ -164,9 +240,9 @@ impl eframe::App for RupertApp {
                     })
                     .collect();
                 let max_line = Line::new(
-                    "Maximum",
+                    "Minimum",
                     xs.iter()
-                        .zip(max_ys.iter())
+                        .zip(min_ys.iter())
                         .map(|(&x, &y)| [x, y])
                         .collect::<PlotPoints<'_>>(),
                 )
