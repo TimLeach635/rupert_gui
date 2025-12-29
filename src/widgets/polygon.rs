@@ -37,8 +37,14 @@ impl Polygon {
         }
     }
 
-    pub fn vertices(&self) -> Vec<Pos2> {
-        self.vertices.clone()
+    pub fn centered_vertices(&self) -> Vec<Pos2> {
+        let mut centroid = Vec2::ZERO;
+        for v in &self.vertices {
+            centroid += v.to_vec2();
+        }
+        centroid /= self.vertices.len() as f32;
+
+        self.vertices.iter().map(|&a| a - centroid).collect()
     }
 
     pub fn ui_control(&mut self, ui: &mut egui::Ui) {

@@ -3,6 +3,7 @@ use std::f64::consts::PI;
 use egui::{Color32, Frame, Grid, Stroke, Vec2};
 use egui_plot::{Line, Plot, PlotPoints};
 use itertools::{Itertools, repeat_n};
+use nalgebra::{Matrix2x3, Matrix3x2, Vector2, Vector3, matrix, vector};
 
 use crate::widgets::{poly_fit_display::PolyFitDisplay, polygon::Polygon};
 
@@ -90,7 +91,7 @@ impl eframe::App for RupertApp {
 
             // TODO: Split this out into its own widget
             // Calculate ns and cs
-            let outer_vertices = self.outer_polygon.vertices();
+            let outer_vertices = self.outer_polygon.centered_vertices();
             let mut ns: Vec<Vec2> = Vec::new();
             let mut cs: Vec<f32> = Vec::new();
             for to_idx in 0..outer_vertices.len() {
@@ -127,16 +128,7 @@ impl eframe::App for RupertApp {
             assert!(critical_normal[2] >= 0.0);
 
             // Values we need
-            let mut centroid = Vec2::ZERO;
-            let inner_vertices = self.inner_polygon.vertices();
-            for vertex in &inner_vertices {
-                centroid += vertex.to_vec2();
-            }
-            centroid /= inner_vertices.len() as f32;
-            let bs: Vec<Vec2> = inner_vertices
-                .iter()
-                .map(|v| v.to_vec2() - centroid)
-                .collect();
+            let inner_vertices = self.inner_polygon.centered_vertices().clone();
 
             // Generate x and y values
             let num_points: usize = 400;
@@ -144,7 +136,6 @@ impl eframe::App for RupertApp {
                 .map(|i| (i as f64) * 2.0 * PI / (num_points as f64))
                 .collect();
 
-            let mut yss: Vec<Vec<f64>> = Vec::new();
             // We need to generate a potentially very large number of lines here: there are N_B
             // to the power of N_A different cosine curves that we need to consider.
             // We can generate a list of indices for these curves by getting "permutations with
@@ -156,56 +147,62 @@ impl eframe::App for RupertApp {
                 .collect_vec();
             // TODO: Generalise this assertion to (N_B)^(N_A)
             assert_eq!(index_choices.len(), 27);
-            for index_choice in index_choices {
-                // Each "index choice" is a vector of length N_A, where each element is an
-                // index from 0 to (N_B - 1) indicating which choice of "j" (i.e. which inner
-                // polygon vertex) to use for the corresponding curve.
-                // We then plug all those choices into the dot product with the critical
-                // region's normal vector.
-                // In the triangle case, this is only a single plane with a single normal, so
-                // there is only one dot product, but the number of planes grows with the
-                // number of sides of the polygons (roughly with the cube of N_A).
-                // TODO: Generalise this to N_A > 3
-                assert_eq!(critical_normal.len(), 3);
-                assert_eq!(index_choice.len(), 3);
-                let mut ys: Vec<f64> = Vec::new();
-                for &x in &xs {
+
+            let mut yss: Vec<Vec<f64>> = vec![Vec::new(); index_choices.len()];
+            let mut min_ys: Vec<f64> = Vec::new();
+            let mut max_min_y = f64::NEG_INFINITY;
+            let mut max_min_x: Option<f64> = None; // The value of x that maximises `max_min`
+            let mut max_min_indices: Option<Vec<usize>> = None; // TODO: This is messy and I hate it
+
+            for &x in &xs {
+                let mut min_y = f64::INFINITY;
+                let mut min_indices: Option<Vec<usize>> = None;
+                for (index_idx, index_choice) in index_choices.iter().enumerate() {
+                    // Each "index choice" is a vector of length N_A, where each element is an
+                    // index from 0 to (N_B - 1) indicating which choice of "j" (i.e. which inner
+                    // polygon vertex) to use for the corresponding curve.
+                    // We then plug all those choices into the dot product with the critical
+                    // region's normal vector.
+                    // In the triangle case, this is only a single plane with a single normal, so
+                    // there is only one dot product, but the number of planes grows with the
+                    // number of sides of the polygons (roughly with the cube of N_A).
+                    // TODO: Generalise this to N_A > 3
+                    assert_eq!(critical_normal.len(), 3);
+                    assert_eq!(index_choice.len(), 3);
                     let mut y: f64 = 0.0;
                     for (i, &j) in index_choice.iter().enumerate() {
-                        let cos_multiplier = ns[i].dot(bs[j]);
-                        let sin_multiplier = ns[i].x * bs[j].y - bs[j].x * ns[i].y;
+                        let cos_multiplier = ns[i].dot(inner_vertices[j].to_vec2());
+                        let sin_multiplier =
+                            ns[i].x * inner_vertices[j].y - inner_vertices[j].x * ns[i].y;
                         let curve_value =
                             (cos_multiplier as f64) * x.cos() + (sin_multiplier as f64) * x.sin();
                         let c_value = (cs[i] as f64) - curve_value;
                         let dot_product_term = (critical_normal[i] as f64) * c_value;
                         y += dot_product_term;
                     }
-                    ys.push(y);
+
+                    // Keeping track of the mins and maxes
+                    if y < min_y {
+                        min_y = y;
+                        min_indices = Some(index_choice.clone());
+                    }
+
+                    yss[index_idx].push(y);
                 }
-                yss.push(ys);
+
+                min_ys.push(min_y);
+                if min_y > max_min_y {
+                    max_min_x = Some(x);
+                    max_min_y = min_y;
+                    max_min_indices = min_indices.clone();
+                }
             }
 
-            let mut min_ys: Vec<f64> = Vec::new();
-            let mut max_min = f64::NEG_INFINITY;
-            let mut maximiser: Option<f64> = None; // The value of x that maximises `max_min`
-            for idx in 0..xs.len() {
-                let mut min = f64::INFINITY;
-                for ys in &yss {
-                    if ys[idx] < min {
-                        min = ys[idx];
-                    }
-                }
-                if min > max_min {
-                    max_min = min;
-                    maximiser = Some(xs[idx]);
-                }
-                min_ys.push(min);
-            }
             // If this minimum line ever rises above zero, there is a fit!
             // By finding the value of x that attains this maximum, we are in some way recording
             // the "best" fit, for some definition of "best".
             // I give it a buffer to avoid the floating point flickering that I was getting.
-            let does_fit = max_min > 0.01;
+            let does_fit = max_min_y > 0.01;
 
             // Create plot lines
             let lines: Vec<Line<'_>> = yss
@@ -251,13 +248,75 @@ impl eframe::App for RupertApp {
                 Frame::canvas(ui.style()).show(ui, |ui| {
                     self.inner_polygon.ui_content(ui);
                 });
+                let mut t_opt: Option<Vec2> = None;
                 let poly_fit_display = match does_fit {
-                    true => PolyFitDisplay::with_fit(
-                        &outer_vertices,
-                        &inner_vertices,
-                        maximiser.unwrap() as f32,
-                        Vec2::ZERO, // TODO: Compute translation
-                    ),
+                    true => {
+                        // Compute the translation
+                        // TODO: Make this less messy, maybe by consolidating which linear algebra
+                        // library we're using throughout the codebase? I'm mixing up Vec2s and
+                        // Pos2s and all of this stuff. I would recommend (to myself) using a
+                        // dedicated linear algebra library at all points throughout, and only
+                        // converting to egui's Pos2 when it is needed.
+                        let n_mat: Matrix3x2<f32> = matrix![
+                            n_1.x, n_1.y;
+                            n_2.x, n_2.y;
+                            n_3.x, n_3.y;
+                        ];
+
+                        let n_p: Vector3<f32> =
+                            vector![critical_normal[0], critical_normal[1], critical_normal[2]];
+
+                        // Our "corner" can be calculated from the max-mins we stored earlier
+                        // However, this is done very messily and I want to sort it out
+                        let x_1: f32 = {
+                            let i = 0;
+                            let j = max_min_indices.clone().unwrap()[i];
+                            let cos_multiplier = ns[i].dot(inner_vertices[j].to_vec2());
+                            let sin_multiplier =
+                                ns[i].x * inner_vertices[j].y - inner_vertices[j].x * ns[i].y;
+                            let curve_value = cos_multiplier * max_min_x.unwrap().cos() as f32
+                                + sin_multiplier * max_min_x.unwrap().sin() as f32;
+                            cs[i] - curve_value
+                        };
+                        let x_2: f32 = {
+                            let i = 1;
+                            let j = max_min_indices.clone().unwrap()[i];
+                            let cos_multiplier = ns[i].dot(inner_vertices[j].to_vec2());
+                            let sin_multiplier =
+                                ns[i].x * inner_vertices[j].y - inner_vertices[j].x * ns[i].y;
+                            let curve_value = cos_multiplier * max_min_x.unwrap().cos() as f32
+                                + sin_multiplier * max_min_x.unwrap().sin() as f32;
+                            cs[i] - curve_value
+                        };
+                        let x_3: f32 = {
+                            let i = 2;
+                            let j = max_min_indices.clone().unwrap()[i];
+                            let cos_multiplier = ns[i].dot(inner_vertices[j].to_vec2());
+                            let sin_multiplier =
+                                ns[i].x * inner_vertices[j].y - inner_vertices[j].x * ns[i].y;
+                            let curve_value = cos_multiplier * max_min_x.unwrap().cos() as f32
+                                + sin_multiplier * max_min_x.unwrap().sin() as f32;
+                            cs[i] - curve_value
+                        };
+                        let corner: Vector3<f32> = vector![x_1, x_2, x_3];
+
+                        let x_p = corner - (corner.dot(&n_p) * n_p);
+                        let n_pseudoinverse: Matrix2x3<f32> = n_mat
+                            .pseudo_inverse(0.0001)
+                            .expect("Should be able to compute pseudoinverse");
+
+                        // Finally!
+                        let t: Vector2<f32> = n_pseudoinverse * x_p;
+                        let translation = Vec2::new(t[0], t[1]);
+                        t_opt = Some(translation.clone());
+
+                        PolyFitDisplay::with_fit(
+                            &outer_vertices,
+                            &inner_vertices,
+                            max_min_x.unwrap() as f32,
+                            translation,
+                        )
+                    }
                     false => PolyFitDisplay::without_fit(&outer_vertices, &inner_vertices),
                 };
                 Frame::canvas(ui.style()).show(ui, |ui| {
@@ -271,9 +330,15 @@ impl eframe::App for RupertApp {
                 ui.vertical(|ui| {
                     self.inner_polygon.ui_readout(ui);
                 });
-                ui.label(match does_fit {
-                    true => "Polygon fits!",
-                    false => "No fit",
+                ui.vertical(|ui| {
+                    ui.label(match does_fit {
+                        true => "Polygon fits!",
+                        false => "No fit",
+                    });
+                    if does_fit {
+                        let t = t_opt.unwrap();
+                        ui.label(format!("t: ({:.2}, {:.2})", t.x, t.y));
+                    }
                 });
                 ui.end_row();
             });
