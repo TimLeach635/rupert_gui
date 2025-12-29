@@ -47,10 +47,6 @@ impl Polygon {
         self.vertices.iter().map(|&a| a - centroid).collect()
     }
 
-    pub fn ui_control(&mut self, ui: &mut egui::Ui) {
-        ui.label("Move the points by dragging them.");
-    }
-
     pub fn ui_content(&mut self, ui: &mut egui::Ui) -> egui::Response {
         let (response, painter) = ui.allocate_painter(Vec2::new(200.0, 200.0), Sense::hover());
 
