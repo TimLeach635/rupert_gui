@@ -29,6 +29,14 @@ impl Default for Polygon {
 }
 
 impl Polygon {
+    pub fn with_style(stroke: Stroke, fill: Color32) -> Self {
+        Self {
+            stroke,
+            fill,
+            ..Default::default()
+        }
+    }
+
     pub fn vertices(&self) -> Vec<Pos2> {
         self.vertices.clone()
     }
