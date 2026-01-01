@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use egui::{
     Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2, emath,
     epaint::{self, PathShape},
@@ -29,12 +31,36 @@ impl Default for Polygon {
 }
 
 impl Polygon {
+    pub fn regular(n_vertices: usize) -> Self {
+        let offset = 100.0;
+        let radius = 50.0;
+        let angle_step = 2.0 * PI / (n_vertices as f32);
+        let mut vertices: Vec<Pos2> = Vec::new();
+        for idx in 0..n_vertices {
+            let angle = angle_step * (idx as f32);
+            vertices.push(pos2(
+                offset + angle.cos() * radius,
+                offset + angle.sin() * radius,
+            ));
+        }
+
+        Self {
+            vertices,
+            ..Default::default()
+        }
+    }
     pub fn with_style(stroke: Stroke, fill: Color32) -> Self {
         Self {
             stroke,
             fill,
             ..Default::default()
         }
+    }
+    pub fn regular_with_style(n_vertices: usize, stroke: Stroke, fill: Color32) -> Self {
+        let mut result = Self::regular(n_vertices);
+        result.stroke = stroke;
+        result.fill = fill;
+        result
     }
 
     pub fn centered_vertices(&self) -> Vec<Pos2> {

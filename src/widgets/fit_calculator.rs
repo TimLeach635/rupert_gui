@@ -97,7 +97,7 @@ impl FitCalculator {
             .multi_cartesian_product()
             .collect_vec();
         // TODO: Generalise this assertion to (N_B)^(N_A)
-        assert_eq!(index_choices.len(), 27);
+        assert_eq!(index_choices.len(), inner_vertices.len().pow(3));
 
         let mut yss: Vec<Vec<f32>> = vec![Vec::new(); index_choices.len()];
         let mut min_ys: Vec<f32> = Vec::new();
@@ -207,7 +207,8 @@ impl FitCalculator {
 
     pub fn new() -> Self {
         let outer = Polygon::default();
-        let inner = Polygon::with_style(
+        let inner = Polygon::regular_with_style(
+            5,
             Stroke::new(1.0, Color32::from_rgb(200, 25, 100)),
             Color32::from_rgb(100, 50, 150).linear_multiply(0.25),
         );
